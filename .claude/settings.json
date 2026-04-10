@@ -1,7 +1,16 @@
 {
-    "env": {
-        "ANTHROPIC_BASE_URL": "http://localhost:11434",
-        "ANTHROPIC_AUTH_TOKEN": "ollama",
-        "ANTHROPIC_API_KEY": "ollama"
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:11434",
+    "ANTHROPIC_AUTH_TOKEN": "ollama",
+    "ANTHROPIC_API_KEY": "ollama"
+  },
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "angallocation": "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"
+      }
     }
+  }
 }

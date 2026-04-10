@@ -1,0 +1,14 @@
+# Claude / Cline secrets
+.claude/settings.json
+.claude/settings.openrouter.json
+.claude/*.json
+
+# General secrets
+backend/node_modules/
+frontend/node_modules/
+.env
+*.log
+
+frontend/.angular/cache/18.2.21/ic-allocation-frontend/.tsbuildinfo
+backend/.env
+
