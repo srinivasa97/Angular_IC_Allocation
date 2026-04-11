@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { DecimalPipe, NgFor, NgIf } from "@angular/common";
 import { ApiService } from "../api.service";
+import { CollapsibleSectionComponent } from "../components/collapsible-section.component";
 import { filterRowsIndexed, topZoneFilterCols, type ColumnFilterDef } from "../table-filter.util";
 
 type DashboardRow = {
@@ -23,7 +24,7 @@ type DashboardPayload = {
 
 @Component({
   standalone: true,
-  imports: [NgIf, NgFor, DecimalPipe, FormsModule],
+  imports: [NgIf, NgFor, DecimalPipe, FormsModule, CollapsibleSectionComponent],
   template: `
     <div class="page-card">
       <div class="page-header">
@@ -89,8 +90,11 @@ type DashboardPayload = {
           </div>
         </div>
 
-        <section style="margin-top: 28px;">
-          <h3 class="page-title" style="font-size: 1rem;">Top allocated zones</h3>
+        <app-collapsible-section
+          title="Top allocated zones"
+          sectionClass="dash-zones-block"
+          [startOpen]="false"
+        >
           <p class="page-desc" style="margin-top: 4px;">
             Where trainees are currently posted (<code>allocated_zone</code>). Use search / column filters to narrow rows.
           </p>
@@ -137,12 +141,19 @@ type DashboardPayload = {
           <ng-template #noZones>
             <p class="alert alert-muted">No zone allocations yet — run allocation or check candidates.</p>
           </ng-template>
-        </section>
+        </app-collapsible-section>
       </ng-container>
 
       <p *ngIf="!loading && !data && !error" class="muted">No data loaded.</p>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .dash-zones-block {
+        margin-top: 28px;
+      }
+    `
+  ]
 })
 export class DashboardComponent implements OnInit {
   private readonly api = inject(ApiService);

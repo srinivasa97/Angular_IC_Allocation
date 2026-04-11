@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { JsonPipe, NgFor, NgIf } from "@angular/common";
 import { ApiService } from "../api.service";
+import { CollapsibleSectionComponent } from "../components/collapsible-section.component";
 import { dynamicRecordFilterCols, filterRowsIndexed } from "../table-filter.util";
 
 type LogsPayload = {
@@ -11,7 +12,7 @@ type LogsPayload = {
 
 @Component({
   standalone: true,
-  imports: [FormsModule, JsonPipe, NgIf, NgFor],
+  imports: [FormsModule, JsonPipe, NgIf, NgFor, CollapsibleSectionComponent],
   template: `
     <div class="page-card">
       <div class="page-header">
@@ -59,7 +60,12 @@ type LogsPayload = {
         </button>
       </div>
 
-      <ng-container *ngIf="currentRows.length">
+      <app-collapsible-section
+        *ngIf="currentRows.length"
+        [title]="logTableSectionTitle"
+        sectionClass="logs-table-collapse"
+        [startOpen]="false"
+      >
         <div class="table-filter-toolbar">
           <input
             type="search"
@@ -80,25 +86,24 @@ type LogsPayload = {
             <input type="text" [(ngModel)]="tableCol[c.key]" [attr.aria-label]="'Filter ' + c.label" />
           </label>
         </div>
-      </ng-container>
-
-      <div class="data-table-wrap data-table-scroll" *ngIf="currentRows.length; else empty">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th *ngFor="let c of columnKeys">{{ formatHeader(c) }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let row of filteredLogRows">
-              <td *ngFor="let c of columnKeys">{{ formatCell(row[c]) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <ng-template #empty>
-        <p *ngIf="!loading && data" class="alert alert-muted">No rows in this log for the current limit.</p>
-      </ng-template>
+        <div class="data-table-wrap data-table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th *ngFor="let c of columnKeys">{{ formatHeader(c) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let row of filteredLogRows">
+                <td *ngFor="let c of columnKeys">{{ formatCell(row[c]) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </app-collapsible-section>
+      <p *ngIf="!loading && data && !currentRows.length" class="alert alert-muted">
+        No rows in this log for the current limit.
+      </p>
 
       <label class="form-check" style="margin-top: 20px;">
         <input type="checkbox" [(ngModel)]="showRaw" />
@@ -118,6 +123,9 @@ type LogsPayload = {
       .tab-count {
         font-weight: 500;
         opacity: 0.85;
+      }
+      .logs-table-collapse {
+        margin-top: 16px;
       }
     `
   ]
@@ -154,6 +162,11 @@ export class LogsComponent implements OnInit {
 
   get logFilterColDefs() {
     return dynamicRecordFilterCols(this.columnKeys);
+  }
+
+  get logTableSectionTitle(): string {
+    const tab = this.activeTab === "business" ? "Business" : "Zone";
+    return `Log table — ${tab} (${this.currentRows.length} rows)`;
   }
 
   get filteredLogRows(): Record<string, unknown>[] {

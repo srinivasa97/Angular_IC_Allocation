@@ -2,11 +2,12 @@ import { Component, OnInit, inject } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { JsonPipe, NgFor, NgIf } from "@angular/common";
 import { ApiService } from "../api.service";
+import { CollapsibleSectionComponent } from "../components/collapsible-section.component";
 import { dynamicRecordFilterCols, filterRowsIndexed } from "../table-filter.util";
 
 @Component({
   standalone: true,
-  imports: [FormsModule, JsonPipe, NgIf, NgFor],
+  imports: [FormsModule, JsonPipe, NgIf, NgFor, CollapsibleSectionComponent],
   template: `
     <div class="page-card">
       <div class="page-header">
@@ -34,7 +35,12 @@ import { dynamicRecordFilterCols, filterRowsIndexed } from "../table-filter.util
 
       <p *ngIf="error" class="alert alert-error">{{ error }}</p>
 
-      <ng-container *ngIf="rows.length">
+      <app-collapsible-section
+        *ngIf="rows.length"
+        [title]="'Sequence table — ' + table + ' (' + rows.length + ' rows)'"
+        sectionClass="admin-seq-collapse"
+        [startOpen]="false"
+      >
         <div class="table-filter-toolbar">
           <input
             type="search"
@@ -55,25 +61,22 @@ import { dynamicRecordFilterCols, filterRowsIndexed } from "../table-filter.util
             <input type="text" [(ngModel)]="tableCol[c.key]" [attr.aria-label]="'Filter ' + c.label" />
           </label>
         </div>
-      </ng-container>
-
-      <div class="data-table-wrap data-table-scroll" *ngIf="rows.length; else empty">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th *ngFor="let c of columnKeys">{{ c }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let row of filteredRows">
-              <td *ngFor="let c of columnKeys">{{ formatCell(row[c]) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <ng-template #empty>
-        <p *ngIf="!loading && !error" class="alert alert-muted">No rows returned.</p>
-      </ng-template>
+        <div class="data-table-wrap data-table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th *ngFor="let c of columnKeys">{{ c }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let row of filteredRows">
+                <td *ngFor="let c of columnKeys">{{ formatCell(row[c]) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </app-collapsible-section>
+      <p *ngIf="!loading && !error && !rows.length" class="alert alert-muted">No rows returned.</p>
 
       <label class="form-check" style="margin-top: 20px;">
         <input type="checkbox" [(ngModel)]="showRaw" />
@@ -89,6 +92,9 @@ import { dynamicRecordFilterCols, filterRowsIndexed } from "../table-filter.util
         flex-wrap: wrap;
         align-items: flex-end;
         gap: 12px;
+      }
+      .admin-seq-collapse {
+        margin-top: 16px;
       }
     `
   ]

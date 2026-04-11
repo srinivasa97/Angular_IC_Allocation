@@ -9,9 +9,18 @@ import {
   UNASSIGNED_FILTER_COLS,
   type ColumnFilterDef
 } from "../table-filter.util";
-import { buildAssignmentExport, buildUnassignedExport, downloadExcelCsv } from "../excel-export.util";
+import {
+  buildAssignmentExport,
+  buildFinalAllocationMatchReport,
+  buildUnassignedExport,
+  downloadExcelCsv
+} from "../excel-export.util";
+import type { FinalMatchReportRow } from "../final-match-audit.util";
+import { FinalMatchReportComponent } from "../components/final-match-report.component";
+import { CollapsibleSectionComponent } from "../components/collapsible-section.component";
 
 type SimulateAssignment = {
+  requirementId?: number;
   candidateId: number;
   email: string;
   meritscore: number;
@@ -28,6 +37,27 @@ type SimulateAssignment = {
   candidateSuitable?: string | null;
   roleSuitability?: string;
   preferencePhase?: string;
+  zone1?: string;
+  zone2?: string;
+  zone3?: string;
+  business1?: string;
+  business2?: string;
+  business3?: string;
+  eligibilityVerdict?: string;
+  zoneMatchBasis?: string;
+  businessMatchBasis?: string;
+  eligiblePoolSize?: number;
+  eligibleRank?: number;
+  topEligibleCandidateId?: number | null;
+  topEligibleCandidateEmail?: string | null;
+  requirementRemainingBefore?: number;
+  requirementRemainingAfter?: number;
+  permanentZone?: string;
+  permanentState?: string;
+  sameAsP1?: boolean | null;
+  hrRelaxedSecondPass?: boolean;
+  requirementGender?: string;
+  genderRelaxedThirdPass?: boolean;
 };
 
 type UnassignedDetail = {
@@ -37,6 +67,21 @@ type UnassignedDetail = {
   reasonCode: string;
   detail: string;
   detailBullets?: string[];
+  profile?: string;
+  discipline?: string;
+  gender?: string;
+  candidateSuitable?: string | null;
+  suggestedIc?: string | null;
+  requirementRoleName?: string | null;
+  zone1?: string;
+  zone2?: string;
+  zone3?: string;
+  business1?: string;
+  business2?: string;
+  business3?: string;
+  permanentZone?: string;
+  permanentState?: string;
+  sameAsP1?: boolean | null;
 };
 
 type UnassignedSummary = {
@@ -49,12 +94,64 @@ type UnassignedSummary = {
   explanation: string;
 };
 
+type IcGenderSeatReportRow = {
+  icname: string;
+  maleFilled: number;
+  femaleFilled: number;
+  otherFilled: number;
+  malePending: number;
+  femalePending: number;
+  otherPending: number;
+  totalFilled: number;
+  totalPending: number;
+};
+
+type IcGenderSeatReportTotals = {
+  maleFilled: number;
+  femaleFilled: number;
+  otherFilled: number;
+  malePending: number;
+  femalePending: number;
+  otherPending: number;
+  totalFilled: number;
+  totalPending: number;
+};
+
+type UnassignedIcInsightRow = {
+  icname: string;
+  openSeatsPending: number;
+  strictEligibleUnassigned: number;
+  blockedGenderMismatchOnly: number;
+  blockedHrRoleMismatchOnly: number;
+  blockedZoneOrBusinessMismatch: number;
+  profileDisciplineNoMatchingSeatLineAtIc: number;
+  otherAtIc: number;
+};
+
+type UnassignedIcInsights = {
+  unassignedCount: number;
+  note: string;
+  rows: UnassignedIcInsightRow[];
+  totals: {
+    openSeatsPending: number;
+    strictEligibleUnassigned: number;
+    blockedGenderMismatchOnly: number;
+    blockedHrRoleMismatchOnly: number;
+    blockedZoneOrBusinessMismatch: number;
+    profileDisciplineNoMatchingSeatLineAtIc: number;
+    otherAtIc: number;
+  };
+};
+
 type SimulateResponse = {
   mode?: string;
   assigned?: number;
   unassigned?: number;
   candidatesConsidered?: number;
   requirementsConsidered?: number;
+  icGenderSeatReport?: IcGenderSeatReportRow[];
+  icGenderSeatReportTotals?: IcGenderSeatReportTotals;
+  unassignedIcInsights?: UnassignedIcInsights;
   assignments?: SimulateAssignment[];
   /** Present when `useLegacyTwoPhaseScript` was true (old Node two-phase flow). */
   legacyTwoPhaseScript?: boolean;
@@ -72,11 +169,27 @@ type SimulateResponse = {
   reconciliation?: Record<string, unknown>;
   /** Profiles on candidates with zero matching `requirements` rows (same gender/profile/discipline filters). */
   profilesMissingRequirements?: Array<{ profile: string; candidateCount: number; message: string }>;
+  hrRelaxUnassignedSecondPass?: {
+    requested: boolean;
+    executed: boolean;
+    skipReason?: "primary_run_already_ignores_hr";
+    assignmentsAdded: number;
+    secondPassSkippedNoCandidate: number;
+    secondPassSkippedDueToIcCap: number;
+  };
+  genderRelaxUnassignedThirdPass?: {
+    requested: boolean;
+    executed: boolean;
+    skipReason?: "primary_run_already_ignores_gender";
+    assignmentsAdded: number;
+    thirdPassSkippedNoCandidate: number;
+    thirdPassSkippedDueToIcCap: number;
+  };
 };
 
 @Component({
   standalone: true,
-  imports: [FormsModule, JsonPipe, NgIf, NgFor, DecimalPipe],
+  imports: [FormsModule, JsonPipe, NgIf, NgFor, DecimalPipe, FinalMatchReportComponent, CollapsibleSectionComponent],
   template: `
     <div class="page-card">
       <div class="page-header">
@@ -124,11 +237,11 @@ type SimulateResponse = {
         </label>
       </div>
       <ul *ngIf="filterOptionsLoaded && !filterOptionsError" class="filter-slice-stats">
-        <li>
+        <!-- <li>
           <strong>{{ filterOptions.requirementSlice.requirementRowCount }}</strong> requirement row(s) with open
           capacity (<code>newvalue > 0</code>) for the current gender / profile / discipline filters — same slice a
           <strong>fresh simulate</strong> loads.
-        </li>
+        </li> -->
         <li>
           <strong>{{ filterOptions.requirementSlice.totalSeatsNewvalue | number : "1.0-0" }}</strong> total seats
           (sum of <code>newvalue</code> on those rows).
@@ -140,42 +253,71 @@ type SimulateResponse = {
       <div class="sim-toolbar">
         <label class="chk">
           <input type="checkbox" [(ngModel)]="payload['resetBeforeRun']" />
-          fresh simulate
+          Fresh simulate
         </label>
         <label class="chk">
           <input type="checkbox" [(ngModel)]="payload['includeTrace']" />
-          trace
+          Trace
         </label>
         <label class="chk">
           <input type="checkbox" [(ngModel)]="payload['preferSuggestedIc']" />
-          prefer suggested IC
+          Panel Prefer suggested IC
         </label>
         <label class="chk">
           <input type="checkbox" [(ngModel)]="payload['ignoreRoleSuitability']" />
-          ignore HR role
+          Ignore Panel HR role suggested
+        </label>
+        <!-- <label
+          class="chk"
+          title="When checked, candidate gender need not match the seat line gender for eligibility or picks. Requirement rows still store line gender in data/logs. Reduces “gender mismatch only” in the unassigned vs open seats report."
+        >
+          <input type="checkbox" [(ngModel)]="payload['ignoreGender']" />
+          Ignore seat-line gender (match profile/discipline/zone/business/HR only)
+        </label> -->
+        <label
+          class="chk"
+          title="After the main run with HR enforced, walks remaining open seats again in the same order using only still-unassigned candidates, ignoring HR role vs seat line. Gender, profile, discipline, zone, and business rules stay the same. No effect when “Ignore Panel HR role suggested” is on."
+        >
+          <input
+            type="checkbox"
+            [(ngModel)]="payload['hrRelaxUnassignedSecondPass']"
+            [disabled]="!!payload['ignoreRoleSuitability']"
+          />
+          2nd pass: unassigned only, ignore HR role
+        </label>
+        <label
+          class="chk"
+          title="After primary (and optional HR second pass), walks remaining open seats again in the same order using only still-unassigned candidates, ignoring seat-line gender vs candidate. If the HR second pass ran, pass 3 keeps HR relaxed like pass 2; otherwise HR follows your primary run. No effect when “Ignore seat-line gender” is on."
+        >
+          <input
+            type="checkbox"
+            [(ngModel)]="payload['genderRelaxUnassignedThirdPass']"
+            [disabled]="!!payload['ignoreGender']"
+          />
+          3rd pass: unassigned only, ignore seat-line gender
         </label>
         <label class="chk">
           <input type="checkbox" [(ngModel)]="payload['includeUnassignedLog']" />
-          unassigned log
+          Unassigned logs
         </label>
-        <label class="chk" title="EduTech flow: P1→P2→P3→NP, each zone N,S,E,W. Uncheck for legacy any-zone match.">
-          <input type="checkbox" [(ngModel)]="payload['phasedPreference']" />
+        <label  class="chk" title="P1→P2→P3→NP, each zone N,S,E,W. Uncheck for legacy any-zone match.">
+          <input type="checkbox" disabled="true" [(ngModel)]="payload['phasedPreference']" />
           phased P1→P2→P3→NP
         </label>
-        <label
+        <!-- <label
           class="chk"
           title="Match old Node script: zone pass on requirements_zone_calculated, then business on requirements; seq_* with execute=1. Needs that table in MySQL."
         >
           <input type="checkbox" [(ngModel)]="payload['useLegacyTwoPhaseScript']" />
           legacy two-phase script
-        </label>
-        <input
+        </label> -->
+        <!-- <input
           type="number"
           min="1"
           class="num-in"
           [(ngModel)]="payload['maxPerIc']"
           placeholder="max per IC"
-        />
+        /> -->
         <button type="button" class="btn btn-primary" (click)="simulate()" [disabled]="loading">
           {{ loading ? "Running…" : "Simulate" }}
         </button>
@@ -194,6 +336,30 @@ type SimulateResponse = {
         <p *ngIf="result?.allocationStrategy" class="strategy">
           <strong>Strategy:</strong> {{ result?.allocationStrategy?.mode }} — {{ result?.allocationStrategy?.order }}
         </p>
+        <p *ngIf="result?.hrRelaxUnassignedSecondPass?.requested" class="hint-banner hr-relax-summary">
+          <strong>HR role relax (2nd pass):</strong>
+          <span *ngIf="result?.hrRelaxUnassignedSecondPass?.skipReason === 'primary_run_already_ignores_hr'">
+            Not run — primary already ignores HR role rules.
+          </span>
+          <span *ngIf="result?.hrRelaxUnassignedSecondPass?.executed">
+            Filled <strong>{{ result?.hrRelaxUnassignedSecondPass?.assignmentsAdded }}</strong> extra seat(s) from the
+            still-unassigned pool (HR role line ignored). Second-pass skips: no candidate
+            {{ result?.hrRelaxUnassignedSecondPass?.secondPassSkippedNoCandidate }}, IC cap
+            {{ result?.hrRelaxUnassignedSecondPass?.secondPassSkippedDueToIcCap }}.
+          </span>
+        </p>
+        <p *ngIf="result?.genderRelaxUnassignedThirdPass?.requested" class="hint-banner hr-relax-summary">
+          <strong>HR gender relax (3rd pass):</strong>
+          <span *ngIf="result?.genderRelaxUnassignedThirdPass?.skipReason === 'primary_run_already_ignores_gender'">
+            Not run — primary already ignores seat-line gender.
+          </span>
+          <span *ngIf="result?.genderRelaxUnassignedThirdPass?.executed">
+            Filled <strong>{{ result?.genderRelaxUnassignedThirdPass?.assignmentsAdded }}</strong> extra seat(s) from the
+            still-unassigned pool (seat-line gender ignored). Third-pass skips: no candidate
+            {{ result?.genderRelaxUnassignedThirdPass?.thirdPassSkippedNoCandidate }}, IC cap
+            {{ result?.genderRelaxUnassignedThirdPass?.thirdPassSkippedDueToIcCap }}.
+          </span>
+        </p>
         <p *ngIf="result?.assignments?.length" class="hint-banner">
           <strong>Suggested IC (Yes/No):</strong> “Yes” only when you had
           <strong>prefer suggested IC</strong> on <em>and</em> the chosen candidate’s
@@ -207,13 +373,129 @@ type SimulateResponse = {
           <div class="kpi">
             <span class="lbl">Candidates</span><span class="val">{{ result!.candidatesConsidered ?? "—" }}</span>
           </div>
-          <div class="kpi">
+          <!-- <div class="kpi">
             <span class="lbl">Req. rows</span><span class="val">{{ result!.requirementsConsidered ?? "—" }}</span>
-          </div>
+          </div> -->
         </div>
 
-        <section *ngIf="result?.reconciliation as rec" class="block">
-          <h3>Requirement vs assignment reconciliation</h3>
+        <app-collapsible-section
+          *ngIf="result?.icGenderSeatReport?.length"
+          title="IC seat summary (this run)"
+          sectionClass="block ic-report-section"
+          [startOpen]="false"
+        >
+          <p class="page-desc ic-report-intro">
+            Counts are by <strong>seat line</strong> gender on each requirement row. <strong>Filled</strong> = seats
+            assigned in this run; <strong>pending</strong> = seats still open on those rows after the run.
+          </p>
+          <div class="data-table-wrap ic-report-wrap">
+            <table class="data-table ic-report-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="ic-report-sticky">IC</th>
+                  <th scope="col" class="ic-num">Male filled</th>
+                  <th scope="col" class="ic-num">Male pending</th>
+                  <th scope="col" class="ic-num">Female filled</th>
+                  <th scope="col" class="ic-num">Female pending</th>
+                  <th scope="col" class="ic-num">Other filled</th>
+                  <th scope="col" class="ic-num">Other pending</th>
+                  <th scope="col" class="ic-num">Total filled</th>
+                  <th scope="col" class="ic-num">Total pending</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let row of result!.icGenderSeatReport!">
+                  <th scope="row" class="ic-report-sticky cell-clip" [attr.title]="row.icname">{{ row.icname }}</th>
+                  <td class="ic-num">{{ row.maleFilled }}</td>
+                  <td class="ic-num">{{ row.malePending }}</td>
+                  <td class="ic-num">{{ row.femaleFilled }}</td>
+                  <td class="ic-num">{{ row.femalePending }}</td>
+                  <td class="ic-num">{{ row.otherFilled }}</td>
+                  <td class="ic-num">{{ row.otherPending }}</td>
+                  <td class="ic-num ic-strong">{{ row.totalFilled }}</td>
+                  <td class="ic-num ic-strong">{{ row.totalPending }}</td>
+                </tr>
+              </tbody>
+              <tfoot *ngIf="result?.icGenderSeatReportTotals as tot">
+                <tr class="ic-report-total-row">
+                  <th scope="row">All ICs</th>
+                  <td class="ic-num">{{ tot.maleFilled }}</td>
+                  <td class="ic-num">{{ tot.malePending }}</td>
+                  <td class="ic-num">{{ tot.femaleFilled }}</td>
+                  <td class="ic-num">{{ tot.femalePending }}</td>
+                  <td class="ic-num">{{ tot.otherFilled }}</td>
+                  <td class="ic-num">{{ tot.otherPending }}</td>
+                  <td class="ic-num ic-strong">{{ tot.totalFilled }}</td>
+                  <td class="ic-num ic-strong">{{ tot.totalPending }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </app-collapsible-section>
+
+        <ng-container *ngIf="result?.unassignedIcInsights as uii">
+          <app-collapsible-section
+            title="Unassigned vs open seats (by IC)"
+            sectionClass="block unassigned-insight-section"
+            [startOpen]="false"
+          >
+          <p class="page-desc insight-intro">
+            <strong>{{ uii.unassignedCount }}</strong> unassigned candidate(s) in this run. Where an IC still has open
+            seats, the table explains mismatches vs those lines (each person at most once per IC; they can appear on
+            several ICs).
+          </p>
+          <p class="muted insight-footnote">{{ uii.note }}</p>
+          <div *ngIf="!uii.rows?.length" class="muted insight-empty">No IC with open seats in this slice — nothing to
+            cross-check per IC.</div>
+          <div class="data-table-wrap insight-table-wrap" *ngIf="uii.rows?.length">
+            <table class="data-table insight-table">
+              <thead>
+                <tr>
+                  <th scope="col" class="insight-sticky">IC</th>
+                  <th scope="col" class="insight-num" title="Open seats left on this IC after the run">Open seats</th>
+                  <th scope="col" class="insight-num" title="Could sit here under current rules; did not get a seat (merit / order / caps)">Eligible, no seat</th>
+                  <th scope="col" class="insight-num" title="Only seat gender blocks vs an open line">Gender mismatch</th>
+                  <th scope="col" class="insight-num" title="Only HR role blocks">HR role mismatch</th>
+                  <th scope="col" class="insight-num" title="Profile/discipline/HR/gender OK but zone or business vs seat line">Zone / business</th>
+                  <th scope="col" class="insight-num" title="No open line at this IC shares profile + discipline">No P+D line</th>
+                  <th scope="col" class="insight-num">Other</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let ir of uii.rows">
+                  <th scope="row" class="insight-sticky cell-clip" [attr.title]="ir.icname">{{ ir.icname }}</th>
+                  <td class="insight-num">{{ ir.openSeatsPending }}</td>
+                  <td class="insight-num">{{ ir.strictEligibleUnassigned }}</td>
+                  <td class="insight-num">{{ ir.blockedGenderMismatchOnly }}</td>
+                  <td class="insight-num">{{ ir.blockedHrRoleMismatchOnly }}</td>
+                  <td class="insight-num">{{ ir.blockedZoneOrBusinessMismatch }}</td>
+                  <td class="insight-num">{{ ir.profileDisciplineNoMatchingSeatLineAtIc }}</td>
+                  <td class="insight-num">{{ ir.otherAtIc }}</td>
+                </tr>
+              </tbody>
+              <tfoot *ngIf="uii.totals as itot">
+                <tr class="insight-total-row">
+                  <th scope="row">Totals (sum over ICs)</th>
+                  <td class="insight-num">{{ itot.openSeatsPending }}</td>
+                  <td class="insight-num">{{ itot.strictEligibleUnassigned }}</td>
+                  <td class="insight-num">{{ itot.blockedGenderMismatchOnly }}</td>
+                  <td class="insight-num">{{ itot.blockedHrRoleMismatchOnly }}</td>
+                  <td class="insight-num">{{ itot.blockedZoneOrBusinessMismatch }}</td>
+                  <td class="insight-num">{{ itot.profileDisciplineNoMatchingSeatLineAtIc }}</td>
+                  <td class="insight-num">{{ itot.otherAtIc }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          </app-collapsible-section>
+        </ng-container>
+
+        <ng-container *ngIf="result?.reconciliation as rec">
+          <app-collapsible-section
+            title="Requirement vs assignment reconciliation"
+            sectionClass="block"
+            [startOpen]="false"
+          >
           <p class="page-desc">
             <strong>Req. rows</strong> is the number of requirement <em>lines</em> after filters. Total
             <strong>seats</strong> are summed from those rows using
@@ -224,10 +506,10 @@ type SimulateResponse = {
             <div>Total seat capacity loaded: <strong>{{ rec["totalSeatCapacityLoaded"] }}</strong></div>
             <div>Seats filled (this run): <strong>{{ rec["seatsFilled"] }}</strong></div>
             <div>Seats still open on requirements: <strong>{{ rec["requirementSeatsStillOpen"] }}</strong></div>
-            <div>Filled + open = loaded: <strong>{{ rec["capacityEquationHolds"] ? "Yes" : "No" }}</strong></div>
-            <div>Skipped (no eligible candidate): <strong>{{ rec["slotsSkippedNoEligibleCandidate"] }}</strong></div>
-            <div>Skipped (IC cap): <strong>{{ rec["slotsSkippedDueToIcCap"] }}</strong></div>
-            <div>Pool shape: <strong>{{ rec["allocationShape"] }}</strong></div>
+            <!-- <div>Filled + open = loaded: <strong>{{ rec["capacityEquationHolds"] ? "Yes" : "No" }}</strong></div> -->
+            <!-- <div>Skipped (no eligible candidate): <strong>{{ rec["slotsSkippedNoEligibleCandidate"] }}</strong></div> -->
+            <!-- <div>Skipped (IC cap): <strong>{{ rec["slotsSkippedDueToIcCap"] }}</strong></div> -->
+            <!-- <div>Pool shape: <strong>{{ rec["allocationShape"] }}</strong></div> -->
           </div>
           <p class="page-desc" style="margin-top: 10px;">{{ rec["exportHint"] }}</p>
           <pre
@@ -236,7 +518,8 @@ type SimulateResponse = {
             style="white-space: pre-wrap; font-size: 0.85rem; background: var(--panel-2, #f5f5f5); padding: 10px; border-radius: 6px;"
             >{{ rec["verifyAgainstDbSql"] }}</pre
           >
-        </section>
+          </app-collapsible-section>
+        </ng-container>
 
         <section *ngIf="result?.profilesMissingRequirements?.length" class="block alert-warn-soft">
           <h3>Profiles with no requirement rows</h3>
@@ -252,24 +535,35 @@ type SimulateResponse = {
           </ul>
         </section>
 
-        <section *ngIf="result?.unassignedSummary" class="block">
-          <h3>Why some are unassigned</h3>
+        <app-collapsible-section
+          *ngIf="result?.unassignedSummary"
+          title="Why some are unassigned"
+          sectionClass="block"
+          [startOpen]="false"
+        >
           <p class="explain">{{ result?.unassignedSummary?.explanation }}</p>
           <div class="mini-grid">
             <div>Never eligible (no row match): <strong>{{ result?.unassignedSummary?.neverEligibleForAnyRequirement }}</strong></div>
             <div>Eligible but no seat / outranked: <strong>{{ result?.unassignedSummary?.eligibleButNotAssigned }}</strong></div>
             <div>Total seats this run: <strong>{{ result?.unassignedSummary?.totalSlotsInRun }}</strong></div>
             <div>Slots skipped (no candidate): <strong>{{ result?.unassignedSummary?.skippedSlotsNoCandidate }}</strong></div>
-            <div>Slots skipped (IC cap): <strong>{{ result?.unassignedSummary?.skippedSlotsDueToIcCap }}</strong></div>
+            <!-- <div>Slots skipped (IC cap): <strong>{{ result?.unassignedSummary?.skippedSlotsDueToIcCap }}</strong></div> -->
           </div>
-        </section>
+        </app-collapsible-section>
 
-        <section *ngIf="result!.assignments?.length" class="block">
-          <h3>Assignments ({{ assignmentsForTable.length }} shown)</h3>
+        <app-collapsible-section
+          *ngIf="result!.assignments?.length"
+          [title]="assignmentSectionTitle"
+          sectionClass="block"
+          [startOpen]="true"
+        >
           <p class="page-desc" style="margin: 4px 0 10px;">
             Filter rows to cross-check against another script. Search matches any column; column filters must all match (case-insensitive contains).
-            <strong>Export Excel</strong> downloads the <em>visible</em> rows as a UTF-8 CSV (opens in Excel).
+            Both <strong>Export Excel</strong> buttons download UTF-8 CSV files that open in Excel. The first is the wide
+            assignment grid; the second is the <strong>final match report</strong> (Req* columns + Bus./Zone/HR checks).
+            The <strong>on-screen final match report</strong> below uses the same rows with green highlights and match flags.
           </p>
+          <app-final-match-report *ngIf="result!.assignments?.length" [rows]="finalMatchRows" />
           <div class="table-filter-toolbar">
             <input
               type="search"
@@ -283,6 +577,14 @@ type SimulateResponse = {
             </button>
             <button type="button" class="btn btn-secondary" (click)="clearAssignFilters()">Clear</button>
             <button type="button" class="btn btn-primary" (click)="exportAssignmentsExcel()">Export Excel</button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              style="margin-left: 8px"
+              (click)="exportFinalMatchReportExcel()"
+            >
+              Export Excel — final match report
+            </button>
             <span class="muted">{{ filteredAssignmentItems.length }} / {{ assignmentsForTable.length }} rows</span>
           </div>
           <div class="col-filters-grid" *ngIf="showAssignColFilters">
@@ -295,48 +597,104 @@ type SimulateResponse = {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Merit</th>
+                  <th>Email Ids</th>
+                  <th>Requirement_Discipline</th>
                   <th>Profile</th>
-                  <th>Discipline</th>
                   <th>Gender</th>
-                  <th>Service prefs</th>
-                  <th>Email</th>
-                  <th>Zone</th>
-                  <th>Business (seat)</th>
-                  <th>IC (seat)</th>
-                  <th>Phase</th>
-                  <th>Suggested IC</th>
-                  <th>HR sugg. name</th>
-                  <th>Role fit</th>
+                  <th>candidate_suitable</th>
+                  <th>suggested_ic</th>
+                  <th>Zone1</th>
+                  <th>Zone2</th>
+                  <th>Zone3</th>
+                  <th>Business1</th>
+                  <th>Business2</th>
+                  <th>Business3</th>
+                  <th>Merit</th>
+                  <th>Allocated IC</th>
+                  <th>Allocation Zone</th>
+                  <th>Allocation Role Name</th>
+                  <th>Student Discipline</th>
+                  <th>Candidate Name</th>
+                  <th>Logs (Allocation Priority ---- Requirement Mapped)</th>
+                  <th>Candidate ID</th>
+                  <th>Requirement Row ID</th>
+                  <th>Eligibility Verdict</th>
+                  <th>Zone Match Basis</th>
+                  <th>Business Match Basis</th>
+                  <th>Eligible Pool Size</th>
+                  <th>Rank in Eligible Pool</th>
+                  <th>Top Eligible Candidate</th>
+                  <th>Remaining Before</th>
+                  <th>Remaining After</th>
+                  <th>Complete</th>
+                  <th>Combination-Key1</th>
+                  <th>Batch</th>
+                  <th>Combination-Key2 (Allocated)</th>
+                  <th>Permanent State</th>
+                  <th>Permanent Zone</th>
+                  <th>Same as P1</th>
+                  <th>HR role relax (2nd)</th>
+                  <th>HR gender relax (3rd)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr *ngFor="let item of filteredAssignmentItems">
-                  <td class="cell-tight">{{ item.origIndex + 1 }}</td>
-                  <td class="cell-num">{{ item.row.meritscore | number : "1.2-2" }}</td>
-                  <td class="cell-clip" [attr.title]="item.row.profile ?? ''">{{ item.row.profile || "—" }}</td>
-                  <td class="cell-clip" [attr.title]="item.row.discipline ?? ''">{{ item.row.discipline || "—" }}</td>
-                  <td class="cell-tight">{{ item.row.gender || "—" }}</td>
-                  <td class="cell-wide" [attr.title]="item.row.servicePreferences ?? ''">
-                    {{ item.row.servicePreferences || "—" }}
-                  </td>
                   <td class="cell-clip" [attr.title]="item.row.email">{{ item.row.email }}</td>
-                  <td class="cell-tight">{{ item.row.zone }}</td>
-                  <td class="cell-clip" [attr.title]="item.row.business">{{ item.row.business }}</td>
-                  <td class="cell-clip" [attr.title]="item.row.icname">{{ item.row.icname }}</td>
-                  <td class="cell-tight"><code>{{ item.row.preferencePhase ?? "—" }}</code></td>
-                  <td class="cell-tight">{{ item.row.suggestedIcMatch ? "Yes" : "No" }}</td>
-                  <td class="cell-clip" [attr.title]="item.row.suggestedIc ?? ''">{{ item.row.suggestedIc || "—" }}</td>
-                  <td class="cell-tight">{{ item.row.roleSuitability ?? "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.discipline ?? ''">{{ item.row.discipline || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.profile ?? ''">{{ item.row.profile || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.gender || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.candidateSuitable ?? ''">
+                    {{ item.row.candidateSuitable || "—" }}
+                  </td>
+                  <td class="cell-clip" [attr.title]="item.row.suggestedIc ?? ''">
+                    {{ item.row.suggestedIc || "—" }}
+                  </td>
+                  <td class="cell-tight">{{ item.row.zone1 || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.zone2 || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.zone3 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business1 ?? ''">{{ item.row.business1 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business2 ?? ''">{{ item.row.business2 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business3 ?? ''">{{ item.row.business3 || "—" }}</td>
+                  <td class="cell-num">{{ item.row.meritscore | number : "1.2-2" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.icname">{{ item.row.icname || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.zone || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.requirementRoleName ?? ''">{{ item.row.requirementRoleName || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.discipline ?? ''">{{ item.row.discipline || "—" }}</td>
+                  <td class="cell-clip">—</td>
+                  <td class="cell-wide">
+                    {{ (item.row.preferencePhase || "ANY") + " ---- " + ((item.row.zone || "—") + " / " + (item.row.business || "—") + " / " + (item.row.icname || "—")) }}
+                  </td>
+                  <td class="cell-tight">{{ item.row.candidateId }}</td>
+                  <td class="cell-tight">{{ item.row.requirementId ?? "—" }}</td>
+                  <td class="cell-tight">{{ item.row.eligibilityVerdict || "MATCHED" }}</td>
+                  <td class="cell-tight">{{ item.row.zoneMatchBasis || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.businessMatchBasis || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.eligiblePoolSize ?? "—" }}</td>
+                  <td class="cell-tight">{{ item.row.eligibleRank ?? "—" }}</td>
+                  <td class="cell-clip">{{ (item.row.topEligibleCandidateId ?? "—") + " / " + (item.row.topEligibleCandidateEmail || "—") }}</td>
+                  <td class="cell-tight">{{ item.row.requirementRemainingBefore ?? "—" }}</td>
+                  <td class="cell-tight">{{ item.row.requirementRemainingAfter ?? "—" }}</td>
+                  <td class="cell-tight">Yes</td>
+                  <td class="cell-wide">{{ (item.row.profile || "—") + "|" + (item.row.discipline || "—") + "|" + (item.row.gender || "—") + "|" + (item.row.requirementRoleName || "—") }}</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-wide">{{ (item.row.zone || "—") + "|" + (item.row.business || "—") + "|" + (item.row.icname || "—") + "|" + (item.row.requirementRoleName || "—") }}</td>
+                  <td class="cell-tight">{{ item.row.permanentState || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.permanentZone || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.sameAsP1 == null ? "—" : item.row.sameAsP1 ? "true" : "false" }}</td>
+                  <td class="cell-tight">{{ item.row.hrRelaxedSecondPass ? "Yes" : "" }}</td>
+                  <td class="cell-tight">{{ item.row.genderRelaxedThirdPass ? "Yes" : "" }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </section>
+        </app-collapsible-section>
 
-        <section *ngIf="result!.unassignedDetails?.length" class="block">
-          <h3>Unassigned detail ({{ result!.unassignedDetails!.length }} shown)</h3>
+        <app-collapsible-section
+          *ngIf="result!.unassignedDetails?.length"
+          [title]="unassignedDetailSectionTitle"
+          sectionClass="block"
+          [startOpen]="false"
+        >
           <div class="table-filter-toolbar">
             <input
               type="search"
@@ -362,31 +720,93 @@ type SimulateResponse = {
             <table class="data-table">
               <thead>
                 <tr>
+                  <th>Email Ids</th>
+                  <th>Requirement_Discipline</th>
+                  <th>Profile</th>
+                  <th>Gender</th>
+                  <th>candidate_suitable</th>
+                  <th>suggested_ic</th>
+                  <th>Zone1</th>
+                  <th>Zone2</th>
+                  <th>Zone3</th>
+                  <th>Business1</th>
+                  <th>Business2</th>
+                  <th>Business3</th>
                   <th>Merit</th>
-                  <th>Email</th>
-                  <th>Reason</th>
-                  <th>Detail</th>
+                  <th>Allocated IC</th>
+                  <th>Allocation Zone</th>
+                  <th>Allocation Role Name</th>
+                  <th>Student Discipline</th>
+                  <th>Candidate Name</th>
+                  <th>Logs (Allocation Priority ---- Requirement Mapped)</th>
+                  <th>Candidate ID</th>
+                  <th>Requirement Row ID</th>
+                  <th>Eligibility Verdict</th>
+                  <th>Failure Reason Code</th>
+                  <th>Failure Reason Detail</th>
+                  <th>Complete</th>
+                  <th>Combination-Key1</th>
+                  <th>Batch</th>
+                  <th>Combination-Key2 (Allocated)</th>
+                  <th>Permanent State</th>
+                  <th>Permanent Zone</th>
+                  <th>Same as P1</th>
                 </tr>
               </thead>
               <tbody>
                 <tr *ngFor="let item of filteredUnassignedItems">
-                  <td class="cell-num">{{ item.row.meritscore | number : "1.2-2" }}</td>
                   <td class="cell-clip" [attr.title]="item.row.email">{{ item.row.email }}</td>
-                  <td class="cell-tight"><code>{{ item.row.reasonCode }}</code></td>
+                  <td class="cell-clip" [attr.title]="item.row.discipline ?? ''">{{ item.row.discipline || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.profile ?? ''">{{ item.row.profile || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.gender || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.candidateSuitable ?? ''">
+                    {{ item.row.candidateSuitable || "—" }}
+                  </td>
+                  <td class="cell-clip" [attr.title]="item.row.suggestedIc ?? ''">
+                    {{ item.row.suggestedIc || "—" }}
+                  </td>
+                  <td class="cell-tight">{{ item.row.zone1 || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.zone2 || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.zone3 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business1 ?? ''">{{ item.row.business1 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business2 ?? ''">{{ item.row.business2 || "—" }}</td>
+                  <td class="cell-clip" [attr.title]="item.row.business3 ?? ''">{{ item.row.business3 || "—" }}</td>
+                  <td class="cell-num">{{ item.row.meritscore | number : "1.2-2" }}</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-clip" [attr.title]="item.row.discipline ?? ''">{{ item.row.discipline || "—" }}</td>
+                  <td class="cell-tight">—</td>
                   <td class="cell-wide unassigned-detail-cell">
-                    <div class="unassigned-summary">{{ item.row.detail }}</div>
+                    <div class="unassigned-summary"><code>{{ item.row.reasonCode }}</code> — {{ item.row.detail }}</div>
                     <ul *ngIf="item.row.detailBullets?.length" class="unassigned-bullets">
                       <li *ngFor="let b of item.row.detailBullets">{{ b }}</li>
                     </ul>
                   </td>
+                  <td class="cell-tight">{{ item.row.candidateId }}</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-tight">NOT_ASSIGNED</td>
+                  <td class="cell-tight"><code>{{ item.row.reasonCode }}</code></td>
+                  <td class="cell-wide">{{ item.row.detail }}</td>
+                  <td class="cell-tight">No</td>
+                  <td class="cell-wide">{{ (item.row.profile || "—") + "|" + (item.row.discipline || "—") + "|" + (item.row.gender || "—") + "|—" }}</td>
+                  <td class="cell-tight">—</td>
+                  <td class="cell-wide">—</td>
+                  <td class="cell-tight">{{ item.row.permanentState || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.permanentZone || "—" }}</td>
+                  <td class="cell-tight">{{ item.row.sameAsP1 == null ? "—" : item.row.sameAsP1 ? "true" : "false" }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </section>
+        </app-collapsible-section>
 
-        <section *ngIf="result!.processingTrace?.length" class="block">
-          <h3>Processing steps</h3>
+        <app-collapsible-section
+          *ngIf="result!.processingTrace?.length"
+          [title]="traceSectionTitle"
+          sectionClass="block"
+          [startOpen]="false"
+        >
           <div class="table-filter-toolbar">
             <input
               type="search"
@@ -423,7 +843,7 @@ type SimulateResponse = {
               </tbody>
             </table>
           </div>
-        </section>
+        </app-collapsible-section>
 
         <section class="block collapsible">
           <label class="chk raw-toggle">
@@ -569,6 +989,180 @@ type SimulateResponse = {
         font-weight: 700;
         color: #15358f;
       }
+      .ic-report-section {
+        background: linear-gradient(180deg, #f8fafc 0%, #fff 48%);
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 14px 16px 16px;
+      }
+      .ic-report-section .cs-toggle {
+        margin-bottom: 8px;
+        background: rgba(255, 255, 255, 0.75);
+        border-color: #cbd5e1;
+      }
+      .ic-report-intro {
+        margin: 0 0 12px;
+        max-width: 52rem;
+      }
+      .ic-report-wrap {
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        overflow: auto;
+        max-height: min(70vh, 28rem);
+        background: #fff;
+      }
+      .ic-report-table {
+        margin: 0;
+        min-width: 720px;
+      }
+      .ic-report-table thead th {
+        background: #1e3a5f;
+        color: #f8fafc;
+        font-weight: 600;
+        font-size: 0.75rem;
+        text-transform: none;
+        letter-spacing: 0.02em;
+        border-color: #334155;
+        white-space: nowrap;
+      }
+      .ic-report-table tbody tr:nth-child(even) {
+        background: #f8fafc;
+      }
+      .ic-report-table tbody tr:nth-child(odd) .ic-report-sticky {
+        background: #fff;
+      }
+      .ic-report-table tbody tr:nth-child(even) .ic-report-sticky {
+        background: #f8fafc;
+      }
+      .ic-report-table tbody tr:hover {
+        background: #e0f2fe;
+      }
+      .ic-report-table tbody tr:hover .ic-report-sticky {
+        background: #e0f2fe;
+      }
+      .ic-report-sticky {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        box-shadow: 4px 0 8px -4px rgba(15, 23, 42, 0.15);
+        text-align: left;
+        min-width: 8rem;
+        max-width: 14rem;
+      }
+      .ic-report-table thead .ic-report-sticky {
+        background: #1e3a5f;
+        z-index: 2;
+      }
+      .ic-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .ic-strong {
+        font-weight: 700;
+        color: #0c4a6e;
+      }
+      .ic-report-total-row th,
+      .ic-report-total-row td {
+        background: #e2e8f0;
+        font-weight: 700;
+        border-top: 2px solid #94a3b8;
+        padding-top: 10px;
+        padding-bottom: 10px;
+      }
+      .ic-report-total-row th {
+        text-align: left;
+      }
+      .unassigned-insight-section {
+        margin-top: 4px;
+        padding: 14px 16px 16px;
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        border-radius: 10px;
+      }
+      .unassigned-insight-section .cs-toggle {
+        margin-bottom: 8px;
+        color: #78350f;
+        background: #fffbeb;
+        border-color: #fcd34d;
+      }
+      .insight-intro {
+        margin: 0 0 6px;
+        max-width: 56rem;
+      }
+      .insight-footnote {
+        margin: 0 0 12px;
+        font-size: 0.78rem;
+        line-height: 1.45;
+        max-width: 56rem;
+      }
+      .insight-empty {
+        margin: 0 0 10px;
+        font-size: 0.875rem;
+      }
+      .insight-table-wrap {
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        overflow: auto;
+        max-height: min(72vh, 30rem);
+        background: #fff;
+      }
+      .insight-table {
+        margin: 0;
+        min-width: 880px;
+      }
+      .insight-table thead th {
+        background: #92400e;
+        color: #fffbeb;
+        font-size: 0.72rem;
+        font-weight: 600;
+        line-height: 1.25;
+        vertical-align: bottom;
+        border-color: #b45309;
+      }
+      .insight-table tbody tr:nth-child(even) {
+        background: #fffbeb;
+      }
+      .insight-table tbody tr:hover {
+        background: #fef3c7;
+      }
+      .insight-sticky {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 7rem;
+        max-width: 13rem;
+        box-shadow: 4px 0 8px -4px rgba(120, 53, 15, 0.12);
+      }
+      .insight-table thead .insight-sticky {
+        background: #92400e;
+        z-index: 2;
+      }
+      .insight-table tbody tr:nth-child(odd) .insight-sticky {
+        background: #fff;
+      }
+      .insight-table tbody tr:nth-child(even) .insight-sticky {
+        background: #fffbeb;
+      }
+      .insight-table tbody tr:hover .insight-sticky {
+        background: #fef3c7;
+      }
+      .insight-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        min-width: 3.25rem;
+      }
+      .insight-total-row th,
+      .insight-total-row td {
+        background: #fde68a;
+        font-weight: 700;
+        border-top: 2px solid #d97706;
+        color: #451a03;
+      }
+      .insight-total-row th {
+        text-align: left;
+      }
       .block {
         margin-bottom: 20px;
       }
@@ -625,8 +1219,11 @@ export class SimulateComponent implements OnInit {
     discipline: "",
     resetBeforeRun: true,
     includeTrace: true,
-    preferSuggestedIc: true,
-    ignoreRoleSuitability: false,
+    preferSuggestedIc: false,
+    ignoreRoleSuitability: true,
+    ignoreGender: false,
+    hrRelaxUnassignedSecondPass: false,
+    genderRelaxUnassignedThirdPass: false,
     includeUnassignedLog: true,
     phasedPreference: true,
     useLegacyTwoPhaseScript: false
@@ -673,6 +1270,24 @@ export class SimulateComponent implements OnInit {
       return r.businessAssignments as SimulateAssignment[];
     }
     return r.assignments;
+  }
+
+  get assignmentSectionTitle(): string {
+    return `Assignments (${this.assignmentsForTable.length} shown)`;
+  }
+
+  get unassignedDetailSectionTitle(): string {
+    const n = this.result?.unassignedDetails?.length ?? 0;
+    return `Unassigned detail (${n} shown)`;
+  }
+
+  get traceSectionTitle(): string {
+    const n = this.result?.processingTrace?.length ?? 0;
+    return `Processing steps (${n})`;
+  }
+
+  get finalMatchRows(): FinalMatchReportRow[] {
+    return this.filteredAssignmentItems.map((i) => i.row as FinalMatchReportRow);
   }
 
   get filteredAssignmentItems(): { row: SimulateAssignment; origIndex: number }[] {
@@ -729,6 +1344,15 @@ export class SimulateComponent implements OnInit {
     const { headers, dataRows } = buildAssignmentExport(items);
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
     downloadExcelCsv(headers, dataRows, `simulate-assignments-${stamp}`);
+  }
+
+  /** Requirement vs candidate zones/businesses/roles vs allocation (same visible rows as table filters). */
+  exportFinalMatchReportExcel(): void {
+    const items = this.filteredAssignmentItems;
+    if (!items.length) return;
+    const { headers, dataRows } = buildFinalAllocationMatchReport(items);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+    downloadExcelCsv(headers, dataRows, `simulate-final-match-excel-${stamp}`);
   }
 
   exportUnassignedExcel(): void {

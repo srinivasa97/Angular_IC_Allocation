@@ -295,6 +295,8 @@ type LegacyAssignment = {
   profile: string;
   discipline: string;
   gender: string;
+  /** Seat line gender for this slice (zone phase uses loop gender; business phase uses requirement row). */
+  requirementGender?: string;
   zone: string;
   business: string;
   icname: string;
@@ -302,7 +304,7 @@ type LegacyAssignment = {
   suggestedIc: string;
   servicePreferences: string;
   requirementRoleName: null;
-  candidateSuitable: null;
+  candidateSuitable: string | null;
   roleSuitability: "not_required";
   preferencePhase: "ANY";
   legacyPhase: "ZONE" | "BUSINESS";
@@ -315,6 +317,8 @@ export type LegacyUnassignedDetail = {
   reasonCode: "NEVER_ELIGIBLE" | "ELIGIBLE_CAPACITY_OR_MERIT";
   detail: string;
   detailBullets: string[];
+  candidateSuitable?: string | null;
+  suggestedIc?: string | null;
 };
 
 export type LegacyUnassignedSummary = {
@@ -417,6 +421,7 @@ async function allocateToZonesScript(
       profile: asText(candidate.profile),
       discipline: asText(candidate.discipline),
       gender: asText(candidate.gender),
+      requirementGender: pGender,
       zone: Zone_Name,
       business: "",
       icname: "(zone only)",
@@ -424,7 +429,7 @@ async function allocateToZonesScript(
       suggestedIc: asText(candidate.suggested_ic ?? ""),
       servicePreferences: svc,
       requirementRoleName: null,
-      candidateSuitable: null,
+      candidateSuitable: trim(candidate.candidate_suitable ?? "") ? trim(candidate.candidate_suitable) : null,
       roleSuitability: "not_required",
       preferencePhase: "ANY",
       legacyPhase: "ZONE"
@@ -535,6 +540,7 @@ async function allocateToBusinessScript(
       profile: asText(candidate.profile),
       discipline: asText(candidate.discipline),
       gender: asText(candidate.gender),
+      requirementGender: asText(req.gender),
       zone: pZone,
       business: pBusiness,
       icname: asText(req.icname ?? ""),
@@ -542,7 +548,7 @@ async function allocateToBusinessScript(
       suggestedIc: asText(candidate.suggested_ic ?? ""),
       servicePreferences: svc,
       requirementRoleName: null,
-      candidateSuitable: null,
+      candidateSuitable: trim(candidate.candidate_suitable ?? "") ? trim(candidate.candidate_suitable) : null,
       roleSuitability: "not_required",
       preferencePhase: "ANY",
       legacyPhase: "BUSINESS"
@@ -751,7 +757,9 @@ function buildLegacyUnassignedReport(
             "Zone phase uses requirements_zone_calculated and seq_zone (execute=1).",
             "Candidate must match gender / profile / discipline and zone1/2/3 vs seq priority (P1/P2/P3) for that zone step.",
             "If no capacity or no matching row in requirements_zone_calculated, the candidate gets no zone."
-          ]
+          ],
+          candidateSuitable: trim(c.candidate_suitable ?? "") ? trim(c.candidate_suitable) : null,
+          suggestedIc: trim(c.suggested_ic ?? "") ? trim(c.suggested_ic) : null
         });
       }
     } else {
@@ -767,7 +775,9 @@ function buildLegacyUnassignedReport(
             "Business phase needs a matching row on requirements (gender, profile, discipline, zone, business) with open capacity.",
             "Candidate business1/2/3 must match seq priority (P1/P2/P3) for that business line.",
             "Higher merit candidates may have taken the available seats first."
-          ]
+          ],
+          candidateSuitable: trim(c.candidate_suitable ?? "") ? trim(c.candidate_suitable) : null,
+          suggestedIc: trim(c.suggested_ic ?? "") ? trim(c.suggested_ic) : null
         });
       }
     }
@@ -817,6 +827,14 @@ export async function executeLegacyTwoPhaseScript(
     trace.push({
       step: "legacy_two_phase_start",
       detail: { mode, simulateFromFresh }
+    });
+  }
+  if (input.ignoreGender && includeTrace) {
+    trace.push({
+      step: "legacy_ignore_gender_unsupported",
+      detail: {
+        note: "ignoreGender is ignored in legacy two-phase mode; allocation still follows seq_gender × profile/discipline slices."
+      }
     });
   }
 

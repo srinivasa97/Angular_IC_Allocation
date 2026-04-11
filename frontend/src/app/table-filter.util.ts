@@ -48,6 +48,7 @@ export type AssignmentFilterRow = {
   profile?: string;
   discipline?: string;
   gender?: string;
+  candidateSuitable?: string | null;
   zone: string;
   business: string;
   icname: string;
@@ -56,6 +57,9 @@ export type AssignmentFilterRow = {
   servicePreferences?: string;
   roleSuitability?: string;
   preferencePhase?: string;
+  hrRelaxedSecondPass?: boolean;
+  requirementGender?: string;
+  genderRelaxedThirdPass?: boolean;
 };
 
 export const ASSIGNMENT_FILTER_COLS: ColumnFilterDef<AssignmentFilterRow>[] = [
@@ -64,6 +68,12 @@ export const ASSIGNMENT_FILTER_COLS: ColumnFilterDef<AssignmentFilterRow>[] = [
   { key: "profile", label: "Profile", text: (r) => String(r.profile ?? "") },
   { key: "discipline", label: "Discipline", text: (r) => String(r.discipline ?? "") },
   { key: "gender", label: "Gender", text: (r) => String(r.gender ?? "") },
+  {
+    key: "candidateSuitable",
+    label: "candidate_suitable",
+    text: (r) => String(r.candidateSuitable ?? "")
+  },
+  { key: "suggested_ic", label: "suggested_ic", text: (r) => String(r.suggestedIc ?? "") },
   { key: "servicePreferences", label: "Service prefs", text: (r) => String(r.servicePreferences ?? "") },
   { key: "email", label: "Email", text: (r) => String(r.email ?? "") },
   { key: "zone", label: "Zone", text: (r) => String(r.zone ?? "") },
@@ -75,8 +85,22 @@ export const ASSIGNMENT_FILTER_COLS: ColumnFilterDef<AssignmentFilterRow>[] = [
     label: "Suggested IC",
     text: (r) => (r.suggestedIcMatch ? "yes" : "no")
   },
-  { key: "suggestedIc", label: "HR sugg. name", text: (r) => String(r.suggestedIc ?? "") },
-  { key: "roleSuitability", label: "Role fit", text: (r) => String(r.roleSuitability ?? "") }
+  { key: "roleSuitability", label: "Role fit", text: (r) => String(r.roleSuitability ?? "") },
+  {
+    key: "hrRelaxedSecondPass",
+    label: "HR role relax (2nd)",
+    text: (r) => (r.hrRelaxedSecondPass ? "yes" : "")
+  },
+  {
+    key: "requirementGender",
+    label: "Seat gender",
+    text: (r) => String(r.requirementGender ?? "")
+  },
+  {
+    key: "genderRelaxedThirdPass",
+    label: "HR gender relax (3rd)",
+    text: (r) => (r.genderRelaxedThirdPass ? "yes" : "")
+  }
 ];
 
 export type UnassignedFilterRow = {
@@ -85,11 +109,19 @@ export type UnassignedFilterRow = {
   reasonCode: string;
   detail: string;
   detailBullets?: string[];
+  candidateSuitable?: string | null;
+  suggestedIc?: string | null;
 };
 
 export const UNASSIGNED_FILTER_COLS: ColumnFilterDef<UnassignedFilterRow>[] = [
   { key: "meritscore", label: "Merit", text: (r) => String(r.meritscore ?? "") },
   { key: "email", label: "Email", text: (r) => String(r.email ?? "") },
+  {
+    key: "candidateSuitable",
+    label: "candidate_suitable",
+    text: (r) => String(r.candidateSuitable ?? "")
+  },
+  { key: "suggested_ic", label: "suggested_ic", text: (r) => String(r.suggestedIc ?? "") },
   { key: "reasonCode", label: "Reason", text: (r) => String(r.reasonCode ?? "") },
   {
     key: "detail",
